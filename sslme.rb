@@ -4,62 +4,44 @@ Bundler.require(:default)
 
 require 'openssl'
 
-# We're going to need a private key.
-private_key = OpenSSL::PKey::RSA.new(2048)
+# Based off of https://lolware.net/2015/10/27/letsencrypt_go_live.html
+ENDPOINT = 'https://acme-staging.api.letsencrypt.org'
+EMAIL = 'mailto:nat@natwelch.com'
+DOMAIN = 'sadnat.com'
+WEBROOT = '.'
 
-# We need an ACME server to talk to, see github.com/letsencrypt/boulder
-endpoint = 'https://acme-staging.api.letsencrypt.org'
-
-# Initialize the client
-client = Acme::Client.new(private_key: private_key, endpoint: endpoint)
-
-# If the private key is not known to the server, we need to register it for the first time.
-registration = client.register(contact: 'mailto:unixcharles@gmail.com')
-
-# You'll may need to agree to the term (that's up the to the server to require it or not but boulder does by default)
+puts 'Account file does not exist, creating new'
+private_key = OpenSSL::PKey::RSA.new 4096
+open ACCOUNT_FILE, 'w' do |io|
+  io.write private_key.to_pem
+end
+client = Acme::Client.new(private_key: private_key, endpoint: ENDPOINT)
+registration = client.register(contact: EMAIL)
 registration.agree_terms
 
-# Let's try to optain a certificate for yourdomain.com
+puts 'Creating verification file'
+simple_http = client.authorize(domain: DOMAIN).simple_http
+open WEBROOT + simple_http.filename, 'w' do |io|
+  io.write simple_http.file_content
+end
 
-# We need to prove that we control the domain using one of the challenges method.
-authorization = client.authorize(domain: 'sadnat.com')
+simple_http.request_verification
+sleep(1) while (simple_http.verify_status == 'pending')
+File.delete(WEBROOT + simple_http.filename)
 
-# For now the only challenge method supprted by the client is simple_http.
-simple_http = authorization.simple_http
-
-# The SimpleHTTP method will require you to response to an HTTP request.
-
-# You can retrieve the expected path for the file.
-simple_http.filename # => ".well-known/acme-challenge/:some_token"
-
-# You can generate the body of the expected response.
-simple_http.file_content # => 'string of JWS signed json'
-
-# You can send no Content-Type at all but if you send one it has to be 'application/jose+json'.
-simple_http.content_type
-
-# Once you are ready to serve the confirmation request you can proceed.
-simple_http.request_verification # => true
-simple_http.verify_status # => 'pending'
-
-# Wait a bit for the server to make the request, or really just blink, it should be fast.
-sleep(1)
-
-simple_http.verify_status # => 'valid'
-
-# We're going to need a CSR, lets do this real quick with Ruby+OpenSSL.
+puts 'Status verified, creating certificate'
 csr = OpenSSL::X509::Request.new
-
-# We need a private key for the certificate, not the same as the account key.
 certificate_private_key = OpenSSL::PKey::RSA.new(2048)
-
-# We just going to add the domain but normally you might want to provide more information.
-csr.subject = OpenSSL::X509::Name.new([
-  ['CN', common_name, OpenSSL::ASN1::UTF8STRING]
-])
+csr.subject = OpenSSL::X509::Name.new([['CN', common_name, OpenSSL::ASN1::UTF8STRING]])
 
 csr.public_key = certificate_private_key.public_key
 csr.sign(certificate_private_key, OpenSSL::Digest::SHA256.new)
 
-# We can now request a certificate
-client.new_certificate(csr) # => #<OpenSSL::X509::Certificate ....>
+puts 'Writing out ssl_cert.pem and ssl_private_key.pem'
+ssl = client.new_certificate(csr)
+open 'ssl_private_key.pem', 'w' do |io|
+  io.write certificate_private_key.to_pem
+end
+open 'ssl_cert.pem', 'w' do |io|
+  io.write ssl.to_pem
+end
