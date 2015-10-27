@@ -3,6 +3,7 @@ require 'bundler'
 Bundler.require(:default)
 
 require 'openssl'
+require 'fileutils'
 
 # Based off of https://lolware.net/2015/10/27/letsencrypt_go_live.html
 ENDPOINT = 'https://acme-staging.api.letsencrypt.org'
@@ -10,18 +11,28 @@ EMAIL = 'mailto:nat@natwelch.com'
 DOMAIN = 'sadnat.com'
 WEBROOT = '.'
 
-puts 'Account file does not exist, creating new'
-private_key = OpenSSL::PKey::RSA.new 4096
-open ACCOUNT_FILE, 'w' do |io|
-  io.write private_key.to_pem
+ACCOUNT_FILE = 'account_key.pem'
+
+if File.exist?(ACCOUNT_FILE)
+  puts "Using existing account.."
+  private_key = OpenSSL::PKey::RSA.new(File.read ACCOUNT_FILE)
+  client = Acme::Client.new(private_key: private_key, endpoint: ENDPOINT)
+else
+  puts "Account file does not exist, creating new"
+  private_key = OpenSSL::PKey::RSA.new 4096
+  open ACCOUNT_FILE, 'w' do |io|
+    io.write private_key.to_pem
+  end
+  client = Acme::Client.new(private_key: private_key, endpoint: ENDPOINT)
+  registration = client.register(contact: EMAIL)
+  registration.agree_terms
 end
-client = Acme::Client.new(private_key: private_key, endpoint: ENDPOINT)
-registration = client.register(contact: EMAIL)
-registration.agree_terms
 
 puts 'Creating verification file'
 simple_http = client.authorize(domain: DOMAIN).simple_http
-open WEBROOT + simple_http.filename, 'w' do |io|
+filename = File.expand_path(File.join(WEBROOT, simple_http.filename))
+FileUtils::mkdir_p File.dirname filename
+open filename, 'w' do |io|
   io.write simple_http.file_content
 end
 
