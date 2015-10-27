@@ -1,3 +1,8 @@
+require 'rubygems'
+require 'bundler'
+Bundler.require(:default)
+
+require 'openssl'
 
 # We're going to need a private key.
 private_key = OpenSSL::PKey::RSA.new(2048)
@@ -17,7 +22,7 @@ registration.agree_terms
 # Let's try to optain a certificate for yourdomain.com
 
 # We need to prove that we control the domain using one of the challenges method.
-authorization = client.authorize(domain: 'yourdomain.com')
+authorization = client.authorize(domain: 'sadnat.com')
 
 # For now the only challenge method supprted by the client is simple_http.
 simple_http = authorization.simple_http
@@ -28,7 +33,7 @@ simple_http = authorization.simple_http
 simple_http.filename # => ".well-known/acme-challenge/:some_token"
 
 # You can generate the body of the expected response.
-simple_http.file_content # => 'string of JWS signed json' 
+simple_http.file_content # => 'string of JWS signed json'
 
 # You can send no Content-Type at all but if you send one it has to be 'application/jose+json'.
 simple_http.content_type
